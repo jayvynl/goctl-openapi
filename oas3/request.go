@@ -1,0 +1,238 @@
+package oas3
+
+import (
+	"fmt"
+	"log"
+	"strings"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+)
+
+type (
+	rawParsedRequest struct {
+		params openapi3.Parameters
+		// only contain json fields, form fields will be added in Parse method only when there is no json field.
+		schema *openapi3.Schema
+	}
+	parsedRequest struct {
+		params openapi3.Parameters
+		body   *openapi3.RequestBodyRef
+	}
+	RequestParser struct {
+		rawCache map[string]rawParsedRequest
+		cache    map[string]parsedRequest
+	}
+)
+
+func NewRequestParser() RequestParser {
+	return RequestParser{
+		rawCache: make(map[string]rawParsedRequest),
+		cache:    make(map[string]parsedRequest),
+	}
+}
+
+func (rp RequestParser) parse(
+	typ spec.DefineStruct, // RequestType to parse
+	types map[string]spec.DefineStruct, // all defined types from api spec
+	requests openapi3.RequestBodies, // request body references
+	schemas openapi3.Schemas, // schema references, json field of struct type will read and write this map
+) rawParsedRequest {
+	if item, ok := rp.rawCache[typ.Name()]; ok {
+		return item
+	}
+
+	embeddedStructs := make([]rawParsedRequest, 0)
+	localParams := make(openapi3.Parameters, 0)
+	localBodySchema := &openapi3.Schema{
+		Type:       openapi3.TypeObject,
+		Properties: make(openapi3.Schemas),
+	}
+	for _, member := range typ.Members {
+		// is member a struct type?
+		if mt, ok := member.Type.(spec.DefineStruct); ok {
+			// embedded struct, recursive parse
+			if member.Name == "" {
+				// currently go-zero does not support show members of nested struct over 2 levels(include).
+				// we can get original type from type definitions in this case.
+				if len(mt.Members) == 0 {
+					mt = types[mt.Name()]
+				}
+				es := rp.parse(mt, types, requests, schemas)
+				embeddedStructs = append(embeddedStructs, es)
+				continue
+			}
+		}
+
+		fn := GetFieldName(member)
+		ms, err := GetMemberSchema(member, types, schemas)
+		if err != nil {
+			log.Printf("invalid type of %s.%s\n", typ.Name(), member.Name)
+		}
+
+		in := GetParameterLocation(member.Tags())
+		required := ParseTags(ms, member.Tags())
+		if in == "" {
+			localBodySchema.Properties[fn] = ms
+			if required {
+				localBodySchema.Required = append(localBodySchema.Required, fn)
+			}
+		} else {
+			localParams = append(localParams, &openapi3.ParameterRef{
+				Value: &openapi3.Parameter{
+					Name:            fn,
+					In:              in,
+					Description:     ms.Value.Description,
+					Required:        required,
+					AllowEmptyValue: ms.Value.AllowEmptyValue,
+					Deprecated:      ms.Value.Deprecated,
+					Schema:          ms,
+				},
+			})
+		}
+	}
+
+	params := make(openapi3.Parameters, 0)
+	bodySchema := &openapi3.Schema{
+		Type:        openapi3.TypeObject,
+		Title:       typ.Name(),
+		Description: strings.Join(typ.Docs, " "),
+		Deprecated:  CheckDeprecated(typ.Docs),
+		Properties:  make(openapi3.Schemas),
+	}
+
+	var (
+		tempParams openapi3.Parameters
+		tempSchema *openapi3.Schema
+	)
+	for i := 0; i <= len(embeddedStructs); i++ {
+		if i == len(embeddedStructs) {
+			tempParams = localParams
+			tempSchema = localBodySchema
+		} else {
+			tempParams = embeddedStructs[i].params
+			tempSchema = embeddedStructs[i].schema
+		}
+
+		for _, p := range tempParams {
+			for i, op := range params {
+				if p.Value.Name == op.Value.Name {
+					params[i] = p
+				}
+			}
+			params = append(params, p)
+		}
+
+		if tempSchema != nil {
+			for n, p := range tempSchema.Properties {
+				bodySchema.Properties[n] = p
+			}
+			bodySchema.Required = MergeRequired(bodySchema.Required, tempSchema.Required)
+		}
+	}
+
+	rpr := rawParsedRequest{
+		params: params,
+		schema: bodySchema,
+	}
+	rp.rawCache[typ.Name()] = rpr
+	return rpr
+}
+
+func (rp RequestParser) Parse(
+	typ spec.DefineStruct, // RequestType to parse
+	types map[string]spec.DefineStruct, // all defined types from api spec
+	requests openapi3.RequestBodies, // request body references
+	schemas openapi3.Schemas, // schema references, json field of struct type will read and write this map
+) (openapi3.Parameters, *openapi3.RequestBodyRef) {
+	if item, ok := rp.cache[typ.Name()]; ok {
+		return item.params, item.body
+	}
+
+	rpr := rp.parse(typ, types, requests, schemas)
+
+	var (
+		params   openapi3.Parameters
+		schema   *openapi3.Schema
+		formBody bool
+	)
+	if len(rpr.schema.Properties) == 0 && containFormParam(rpr.params) {
+		formBody = true
+		params = make(openapi3.Parameters, len(rpr.params))
+		schema = &openapi3.Schema{
+			Type:        openapi3.TypeObject,
+			Title:       rpr.schema.Title,
+			Description: rpr.schema.Description,
+			Deprecated:  rpr.schema.Deprecated,
+			Properties:  make(openapi3.Schemas),
+		}
+		for _, p := range params {
+			if p.Value.In == openapi3.ParameterInQuery {
+				schema.Properties[p.Value.Name] = p.Value.Schema
+				// if a param both exists in query and form, any one is not required
+				if p.Value.Required {
+					params = append(params, &openapi3.ParameterRef{
+						Value: &openapi3.Parameter{
+							Name:            p.Value.Name,
+							In:              openapi3.ParameterInQuery,
+							Description:     p.Value.Description,
+							AllowEmptyValue: true,
+							Deprecated:      p.Value.Deprecated,
+							Schema:          p.Value.Schema,
+						},
+					})
+					continue
+				}
+				params = append(params, p)
+			}
+		}
+	} else {
+		params = rpr.params
+		if len(rpr.schema.Properties) != 0 {
+			schema = rpr.schema
+		}
+	}
+
+	var bodyRef *openapi3.RequestBodyRef
+	if schema != nil {
+		mediaType := &openapi3.MediaType{
+			Schema: &openapi3.SchemaRef{
+				Value: schema,
+			},
+		}
+		body := &openapi3.RequestBodyRef{
+			Value: &openapi3.RequestBody{
+				Description: schema.Description,
+				Required:    !formBody,
+			},
+		}
+		if formBody {
+			body.Value.Content = openapi3.Content{
+				"multipart/form-data":               mediaType,
+				"application/x-www-form-urlencoded": mediaType,
+			}
+		} else {
+			body.Value.Content = openapi3.Content{
+				"application/json": mediaType,
+			}
+		}
+		requests[typ.Name()] = body
+		bodyRef = &openapi3.RequestBodyRef{
+			Ref: fmt.Sprintf("#/components/requestBodies/%s", typ.Name()),
+		}
+	}
+	rp.cache[typ.Name()] = parsedRequest{
+		params: params,
+		body:   bodyRef,
+	}
+	return params, bodyRef
+}
+
+func containFormParam(params openapi3.Parameters) bool {
+	for _, p := range params {
+		if p.Value.In == openapi3.ParameterInQuery {
+			return true
+		}
+	}
+	return false
+}
