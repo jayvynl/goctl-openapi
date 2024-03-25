@@ -1,0 +1,131 @@
+syntax = "v1"
+
+info (
+	title:   "api 文件示例"
+	desc:    "给出尽可能复杂的场景 测试本项目功能"
+	author:  "Lin Zhiwen"
+	email:   "zhiwenlin1116@gmail.com"
+	date:    "2024年03月25日"
+	version: "v1"
+    servers: "http:localhost/v1,https://localhost/v2"
+    externalDocs: "https://github.com/jayvynl/goctl-openapi"
+    tags: "foo,bar"
+)
+
+type ResourceID {
+    ID int `path:"id" validate:"required"`
+}
+
+type PageQuery {
+    Page uint `form:"page,optional" validate:"min=1,lt=10000"`
+    PageSize uint `form:"page_size,default=20" validate:"min=1,max=100"`
+}
+
+type BaseFilter {
+    ResourceID
+    PageQuery
+    Token string `header:"WWW-Authenticate"`
+    Name string `form:"name,options=[foo,bar]" validate:"omitempty,len=10"`
+}
+
+type BaseFilterWithBody {
+    BaseFilter
+    Names []string `json:"names,optional" validate:"max=5,dive,len=10"`
+}
+
+type BookFilter{
+    BaseFilter
+    PublishDateGt int32 `form:"publish_date_gt,optional"`
+    PublishDateLte int32 `form:"publish_date_lte,optional"`
+    AuthorID int64 `form:"author_id,optional" validate:"omitempty,gt=1"`
+}
+
+type BookFilterWithBody{
+    BookFilter
+    AuthorIDS []int64 `json:"author_ids,optional" validate:"max=10,dive,gt=1"`
+}
+
+type StoryBookFilter{
+    BookFilter
+    Type string `form:"type,optional" validate:"omitempty,oneof='foo0x2Cbar' 'spam0x7Cegg'"`
+}
+
+type StoryBookFilterWithBody{
+    StoryBookFilter
+    Types [2]string `json:"types,optional" validate:"dive,oneof='foo0x2Cbar' 'spam0x7Cegg'"`
+}
+
+type UpdateStoryBooksRequest {
+    StoryBookFilter
+    StoryBook
+    Complicate map[string][]map[int][]*Author `json:"complicate" validate:"len=3,dive,keys,len=5,endkeys,max=100,dive,len=3,dive,min=2"`
+}
+
+type BaseModel {
+	ID        int   `json:"id" gorm:"primaryKey"`
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type Base {
+	BaseModel
+	Name string              `json:"name"`
+	Meta map[string][]string `json:"meta"`
+}
+
+type Author {
+	Base
+	Birthday int32   `json:"birthday"`
+	Books    []*Book `json:"books"`
+}
+
+type Book {
+	Base
+	PublishDate int32  `json:"publish_date"`
+	Author      Author `json:"author"`
+}
+
+type StoryBook {
+	Book
+	Type string `json:"type"`
+}
+
+@server (
+	prefix:     /base
+	group:      base
+)
+service Example {
+	@handler Health
+	get /health
+
+}
+
+@server (
+	jwt:        Auth
+	prefix:     /book
+	group:      book
+)
+service Example {
+    @doc(
+        summary: "Update story book"
+        descripton: "Update one or multiple story books"
+        externalDocs: "https://github.com/jayvynl/goctl-openapi"
+    )
+	@handler UpdateStoryBooks
+	post /story/:id (UpdateStoryBooksRequest)
+
+    @doc(
+        tags: "bar"
+    )
+	@handler ListStoryBook1
+	get /story1/:id (StoryBookFilter) returns ([]StoryBook)
+
+	@handler ListStoryBook2
+	post /story2/:id (StoryBookFilter) returns ([]StoryBook)
+
+    @doc(
+        tags: "foo"
+    )
+	@handler ListStoryBook3
+	post /story3/:id (StoryBookFilterWithBody) returns ([]StoryBook)
+}

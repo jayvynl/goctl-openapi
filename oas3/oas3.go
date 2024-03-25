@@ -154,8 +154,10 @@ func FillPaths(
 					request = nil
 				}
 			}
-			if typ := route.ResponseType.Name(); typ != "" {
-				response = ParseResponse(typ, types, responses, schemas)
+			if route.ResponseType != nil {
+				if typ := route.ResponseType.Name(); typ != "" {
+					response = ParseResponse(typ, types, responses, schemas)
+				}
 			}
 
 			var security *openapi3.SecurityRequirements
@@ -238,6 +240,9 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 			Properties:  make(openapi3.Schemas),
 		},
 	}
+
+	// must set cache immediately, for breaking cycle type reference.
+	schemas[typ.Name()] = schema
 	for _, m := range typ.Members {
 		fn := GetFieldName(m)
 		// is member a struct type?
@@ -250,9 +255,8 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 			if m.Name == "" {
 				allOf = append(allOf, ms)
 				continue
-			} else {
-				schema.Value.Properties[fn] = ms
 			}
+			schema.Value.Properties[fn] = ms
 		} else {
 			memberSchema, err := GetMemberSchema(m, types, schemas)
 			if err != nil {
@@ -278,7 +282,6 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 			},
 		}
 	}
-	schemas[typ.Name()] = schema
 	return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
 }
 
@@ -292,10 +295,21 @@ func GetMemberSchema(m spec.Member, types map[string]spec.DefineStruct, schemas 
 	if desc == "" {
 		desc = strings.Join(m.Docs, " ")
 	}
-	schema.Value.Description = desc
+	deprecated := CheckDeprecated(m.Docs)
 
+	if desc == "" && !deprecated {
+		return schema, nil
+	}
+
+	if schema.Value == nil {
+		schema = &openapi3.SchemaRef{
+			Value: &openapi3.Schema{
+				OneOf: openapi3.SchemaRefs{schema},
+			},
+		}
+	}
 	schema.Value.Description = desc
-	schema.Value.Deprecated = CheckDeprecated(m.Docs)
+	schema.Value.Deprecated = deprecated
 	return schema, nil
 }
 
@@ -363,7 +377,14 @@ func GetSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 		if err != nil {
 			return nil, err
 		}
-		elementSchema.Value.Nullable = true
+		if elementSchema.Value == nil {
+			elementSchema = &openapi3.SchemaRef{
+				Value: &openapi3.Schema{
+					OneOf:    openapi3.SchemaRefs{elementSchema},
+					Nullable: true,
+				},
+			}
+		}
 		return elementSchema, nil
 	}
 
@@ -413,12 +434,22 @@ func GetSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 
 func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 	required := true
-	s.Value.AllowEmptyValue = true
+
+	if s.Value != nil {
+		s.Value.AllowEmptyValue = true
+	}
 
 	for _, tag := range tags {
 		switch tag.Key {
 		case constant.TagKeyForm, constant.TagKeyJson:
 			for _, opt := range tag.Options {
+				if s.Value == nil {
+					if opt == constant.OptionOptional || opt == constant.OptionOmitempty ||
+						strings.HasPrefix(opt, constant.OptionDefault) {
+						required = false
+					}
+					continue
+				}
 				if opt == constant.OptionOptional || opt == constant.OptionOmitempty {
 					required = false
 				} else if strings.HasPrefix(opt, constant.OptionDefault) {
@@ -441,6 +472,9 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 				inKeys bool
 			)
 			for i := -1; i < len(tag.Options); i++ {
+				if s.Value == nil {
+					break
+				}
 				if i == -1 {
 					opt = tag.Name
 				} else {
@@ -470,7 +504,7 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 						s = s.Value.Items
 					} else if s.Value.Type == openapi3.TypeObject {
 						if s.Value.AdditionalProperties.Schema == nil {
-							log.Println("invalid validate tag \"dive\" for non map type \"%s\"", s.Value.Title)
+							log.Printf("invalid validate tag \"dive\" for non map type \"%s\"\n", s.Value.Title)
 							return required
 						}
 						s = s.Value.AdditionalProperties.Schema

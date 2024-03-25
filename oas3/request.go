@@ -166,21 +166,14 @@ func (rp RequestParser) Parse(
 			Deprecated:  rpr.schema.Deprecated,
 			Properties:  make(openapi3.Schemas),
 		}
-		for _, p := range params {
+		for _, p := range rpr.params {
 			if p.Value.In == openapi3.ParameterInQuery {
 				schema.Properties[p.Value.Name] = p.Value.Schema
 				// if a param both exists in query and form, any one is not required
 				if p.Value.Required {
-					params = append(params, &openapi3.ParameterRef{
-						Value: &openapi3.Parameter{
-							Name:            p.Value.Name,
-							In:              openapi3.ParameterInQuery,
-							Description:     p.Value.Description,
-							AllowEmptyValue: true,
-							Deprecated:      p.Value.Deprecated,
-							Schema:          p.Value.Schema,
-						},
-					})
+					value := *p.Value
+					value.AllowEmptyValue = true
+					params = append(params, &openapi3.ParameterRef{Value: &value})
 					continue
 				}
 				params = append(params, p)
