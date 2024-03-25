@@ -2,7 +2,6 @@ package oas3
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,7 +15,7 @@ import (
 
 func GetDoc(p *plugin.Plugin) *openapi3.T {
 	doc := &openapi3.T{
-		OpenAPI:      "3.0",
+		OpenAPI:      "3.0.3",
 		Components:   NewComponents(),
 		Info:         GetInfo(p.Api.Info.Properties),
 		Paths:        openapi3.NewPaths(),
@@ -54,11 +53,11 @@ func NewComponents() *openapi3.Components {
 }
 
 func GetInfo(properties map[string]string) *openapi3.Info {
-	title, _ := GetProperty(properties, constant.ApiInfoTitle)
-	version, _ := GetProperty(properties, constant.ApiInfoVersion)
-	desc, _ := GetProperty(properties, constant.ApiInfoDesc)
-	author, _ := GetProperty(properties, constant.ApiInfoAuthor)
-	email, _ := GetProperty(properties, constant.ApiInfoEmail)
+	title := GetProperty(properties, constant.ApiInfoTitle)
+	version := GetProperty(properties, constant.ApiInfoVersion)
+	desc := GetProperty(properties, constant.ApiInfoDesc)
+	author := GetProperty(properties, constant.ApiInfoAuthor)
+	email := GetProperty(properties, constant.ApiInfoEmail)
 	info := &openapi3.Info{
 		Title:       title,
 		Description: desc,
@@ -74,7 +73,7 @@ func GetInfo(properties map[string]string) *openapi3.Info {
 }
 
 func GetServers(properties map[string]string) openapi3.Servers {
-	urls, _ := GetProperty(properties, constant.ApiInfoServers)
+	urls := GetProperty(properties, constant.ApiInfoServers)
 	urls = strings.TrimSpace(urls)
 	if urls == "" {
 		return nil
@@ -89,7 +88,7 @@ func GetServers(properties map[string]string) openapi3.Servers {
 }
 
 func GetExternalDocs(properties map[string]string) *openapi3.ExternalDocs {
-	url, _ := GetProperty(properties, constant.ApiInfoExternalDocs)
+	url := GetProperty(properties, constant.ApiInfoExternalDocs)
 	url = strings.TrimSpace(url)
 	if url == "" {
 		return nil
@@ -100,7 +99,7 @@ func GetExternalDocs(properties map[string]string) *openapi3.ExternalDocs {
 }
 
 func GetTags(properties map[string]string) []string {
-	names, _ := GetProperty(properties, constant.ApiInfoTags)
+	names := GetProperty(properties, constant.ApiInfoTags)
 	names = strings.TrimSpace(names)
 	if names == "" {
 		return nil
@@ -134,11 +133,11 @@ func FillPaths(
 				}
 			}
 
-			summary, _ := GetProperty(route.AtDoc.Properties, "summary")
+			summary := GetProperty(route.AtDoc.Properties, "summary")
 			if summary == "" {
 				summary = route.AtDoc.Text
 			}
-			desc, _ := GetProperty(route.AtDoc.Properties, "description")
+			desc := GetProperty(route.AtDoc.Properties, "description")
 			if desc == "" {
 				desc = strings.Join(route.Docs, " ")
 			}
@@ -191,7 +190,7 @@ func ParseResponse(typ string, types map[string]spec.DefineStruct, responses ope
 	}
 	schema, err := GetSchema(typ, types, schemas)
 	if err != nil {
-		log.Printf("GetSchema of \"%s\": %s", typ, err)
+		fmt.Printf("GetSchema of \"%s\": %s", typ, err)
 		return nil
 	}
 
@@ -260,13 +259,13 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 		} else {
 			memberSchema, err := GetMemberSchema(m, types, schemas)
 			if err != nil {
-				log.Printf("invalid type of %s.%s\n", typ.Name(), m.Name)
+				fmt.Printf("invalid type of %s.%s\n", typ.Name(), m.Name)
 				continue
 			}
 			schema.Value.Properties[fn] = memberSchema
 		}
 
-		if ParseTags(schema.Value.Properties[fn], m.Tags()) {
+		if required, _ := ParseTags(schema.Value.Properties[fn], m.Tags()); required {
 			schema.Value.Required = append(schema.Value.Required, fn)
 		}
 	}
@@ -432,12 +431,9 @@ func GetSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 	}, nil
 }
 
-func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
+func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) (bool, bool) {
 	required := true
-
-	if s.Value != nil {
-		s.Value.AllowEmptyValue = true
-	}
+	allowEmpty := true
 
 	for _, tag := range tags {
 		switch tag.Key {
@@ -463,7 +459,7 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 			}
 		case constant.TagKeyValidate:
 			if ValidateContainOr(tag) {
-				log.Println("currently parsing validate tag which contains \"|\" is not supported")
+				fmt.Println("currently parsing validate tag which contains \"|\" is not supported")
 				continue
 			}
 			var (
@@ -495,7 +491,7 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 					if s.Value.Nullable {
 						s.Value.Nullable = false
 					} else {
-						s.Value.AllowEmptyValue = false
+						allowEmpty = false
 					}
 					continue
 				}
@@ -504,8 +500,8 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 						s = s.Value.Items
 					} else if s.Value.Type == openapi3.TypeObject {
 						if s.Value.AdditionalProperties.Schema == nil {
-							log.Printf("invalid validate tag \"dive\" for non map type \"%s\"\n", s.Value.Title)
-							return required
+							fmt.Printf("invalid validate tag \"dive\" for non map type \"%s\"\n", s.Value.Title)
+							return required, allowEmpty
 						}
 						s = s.Value.AdditionalProperties.Schema
 					}
@@ -515,7 +511,7 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) bool {
 			}
 		}
 	}
-	return required
+	return required, allowEmpty
 }
 
 // https://pkg.go.dev/github.com/go-playground/validator/v10#hdr-Or_Operator

@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/jayvynl/goctl-openapi/oas3"
@@ -15,17 +14,18 @@ import (
 )
 
 var (
-	output = flag.String("output", "", `output path of openapi file, default "openapi.json", "-" will output to stdout.`)
+	output = flag.String("filename", "", `openapi file name, default "openapi.json", "-" will output to stdout.`)
 	format = flag.String("format", "", `serialization format, "json" or "yaml", default "json".`)
+	pretty = flag.Bool("pretty", false, `pretty print of json.`)
 )
 
 func main() {
-	log.Default().SetOutput(os.Stderr)
 	flag.Parse()
 
 	p, err := plugin.NewPlugin()
 	if err != nil {
-		log.Fatalf("goctl-openapi: %s\n", err)
+		fmt.Printf("goctl-openapi: %s\n", err)
+		return
 	}
 
 	var (
@@ -39,43 +39,53 @@ func main() {
 		f = "json"
 	} else if strings.HasSuffix(o, ".yml") || strings.HasSuffix(o, ".yaml") {
 		f = "yaml"
-	} else if *format != "" {
-		switch *format {
-		case "json":
-			f = "json"
-		case "yaml", "yml":
-			f = "yaml"
-		default:
-			log.Fatal("format is json or yaml")
+	} else {
+		if *format != "" {
+			switch *format {
+			case "json":
+				f = "json"
+			case "yaml", "yml":
+				f = "yaml"
+			default:
+				fmt.Println("goctl-openapi: format must be json or yaml")
+				return
+			}
 		}
 		if o != "-" {
 			o = fmt.Sprintf("%s.%s", o, f)
 		}
 	}
 
-	var w io.Writer
+	var w *os.File
 	if o == "-" {
 		w = os.Stdout
 	} else {
-		w, err = os.Create(o)
+		w, err = os.Create(path.Join(p.Dir, o))
 		if err != nil {
-			log.Fatalf("goctl-openapi: %s\n", err)
+			fmt.Printf("goctl-openapi: %s\n", err)
+			return
 		}
-		defer w.(io.Closer).Close()
+		defer w.Close()
 	}
 
 	doc := oas3.GetDoc(p)
 	if f == "json" {
 		encoder := json.NewEncoder(w)
+		if *pretty {
+			encoder.SetIndent("", "  ")
+		}
 		err = encoder.Encode(doc)
 		if err != nil {
-			log.Fatalf("goctl-openapi: %s\n", err)
+			fmt.Printf("goctl-openapi: %s\n", err)
+			return
 		}
 	} else {
 		encoder := yaml.NewEncoder(w)
+		defer encoder.Close()
 		err = encoder.Encode(doc)
 		if err != nil {
-			log.Fatalf("goctl-openapi: %s\n", err)
+			fmt.Printf("goctl-openapi: %s\n", err)
+			return
 		}
 	}
 }

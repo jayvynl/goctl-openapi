@@ -16,8 +16,12 @@ func ConvertPath(path string) string {
 	return pathParamRe.ReplaceAllString(path, `/{$1}`)
 }
 
-func GetProperty(properties map[string]string, key string) (string, error) {
-	return strconv.Unquote(properties[key])
+func GetProperty(properties map[string]string, key string) string {
+	v, err := strconv.Unquote(properties[key])
+	if err == nil {
+		return v
+	}
+	return properties[key]
 }
 
 // https://pkg.go.dev/github.com/go-playground/validator/v10#hdr-Using_Validator_Tags

@@ -17,10 +17,12 @@ Help messages.
 
 ```bash
 Usage goctl-openapi:
+  -filename string
+        openapi file name, default "openapi.json", "-" will output to stdout.
   -format string
         serialization format, "json" or "yaml", default "json".
-  -output string
-        output path of openapi file, default "openapi.json", "-" will output to stdout.
+  -pretty
+        pretty print of json.
 ```
 
 Usage example.

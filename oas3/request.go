@@ -2,7 +2,6 @@ package oas3
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -67,11 +66,11 @@ func (rp RequestParser) parse(
 		fn := GetFieldName(member)
 		ms, err := GetMemberSchema(member, types, schemas)
 		if err != nil {
-			log.Printf("invalid type of %s.%s\n", typ.Name(), member.Name)
+			fmt.Printf("invalid type of %s.%s\n", typ.Name(), member.Name)
 		}
 
 		in := GetParameterLocation(member.Tags())
-		required := ParseTags(ms, member.Tags())
+		required, allowEmpty := ParseTags(ms, member.Tags())
 		if in == "" {
 			localBodySchema.Properties[fn] = ms
 			if required {
@@ -84,7 +83,7 @@ func (rp RequestParser) parse(
 					In:              in,
 					Description:     ms.Value.Description,
 					Required:        required,
-					AllowEmptyValue: ms.Value.AllowEmptyValue,
+					AllowEmptyValue: allowEmpty,
 					Deprecated:      ms.Value.Deprecated,
 					Schema:          ms,
 				},
