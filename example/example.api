@@ -7,7 +7,7 @@ info (
 	email:        "zhiwenlin1116@gmail.com"
 	date:         "2024年03月25日"
 	version:      "v1"
-	servers:      "http:localhost/v1,https://localhost/v2"
+	servers:      "http://localhost/v1,https://localhost/v2"
 	externalDocs: "https://github.com/jayvynl/goctl-openapi"
 	tags:         "foo,bar"
 )
