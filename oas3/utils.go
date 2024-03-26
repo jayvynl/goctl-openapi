@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/jayvynl/goctl-openapi/constant"
 )
 
 var (
@@ -72,4 +75,52 @@ func MergeRequired(rs ...[]string) []string {
 		}
 	}
 	return merged
+}
+
+func ParseValue(typ string, format string, s string) (interface{}, error) {
+	switch typ {
+	case openapi3.TypeBoolean:
+		return strconv.ParseBool(s)
+	case openapi3.TypeInteger:
+		return ParseInteger(format, s)
+	case openapi3.TypeNumber:
+		return ParseNumber(format, s)
+	case openapi3.TypeString:
+		return s, nil
+	default:
+		return nil, fmt.Errorf("can't parse type \"%s\"", typ)
+	}
+}
+
+func ParseInteger(format string, s string) (float64, error) {
+	var bits int
+
+	switch format {
+	case constant.FormatInt8, constant.FormatUint8:
+		bits = 8
+	case constant.FormatInt16, constant.FormatUint16:
+		bits = 16
+	case constant.FormatInt32, constant.FormatUint32:
+		bits = 32
+	default:
+		bits = 64
+	}
+	if IsUint(format) {
+		v, err := strconv.ParseUint(s, 10, bits)
+		return float64(v), err
+	}
+	v, err := strconv.ParseInt(s, 10, bits)
+	return float64(v), err
+}
+
+func ParseNumber(format string, s string) (float64, error) {
+	if format == constant.FormatFloat {
+		return strconv.ParseFloat(s, 32)
+	}
+	return strconv.ParseFloat(s, 64)
+}
+
+func IsUint(format string) bool {
+	return format == constant.FormatUint || format == constant.FormatUint8 || format == constant.FormatUint16 ||
+		format == constant.FormatUint32 || format == constant.FormatUint64
 }

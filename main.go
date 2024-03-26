@@ -68,7 +68,12 @@ func main() {
 		defer w.Close()
 	}
 
-	doc := oas3.GetDoc(p)
+	doc, err := oas3.GetDoc(p)
+	if err != nil {
+		fmt.Printf("goctl-openapi: %s\n", err)
+		return
+	}
+
 	if f == "json" {
 		encoder := json.NewEncoder(w)
 		if *pretty {

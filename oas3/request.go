@@ -19,20 +19,20 @@ type (
 		params openapi3.Parameters
 		body   *openapi3.RequestBodyRef
 	}
-	RequestParser struct {
+	requestParser struct {
 		rawCache map[string]rawParsedRequest
 		cache    map[string]parsedRequest
 	}
 )
 
-func NewRequestParser() RequestParser {
-	return RequestParser{
+func newRequestParser() requestParser {
+	return requestParser{
 		rawCache: make(map[string]rawParsedRequest),
 		cache:    make(map[string]parsedRequest),
 	}
 }
 
-func (rp RequestParser) parse(
+func (rp requestParser) parse(
 	typ spec.DefineStruct, // RequestType to parse
 	types map[string]spec.DefineStruct, // all defined types from api spec
 	requests openapi3.RequestBodies, // request body references
@@ -64,13 +64,13 @@ func (rp RequestParser) parse(
 			}
 		}
 
-		fn := GetFieldName(member)
-		ms, err := GetMemberSchema(member, types, schemas)
+		fn := getFieldName(member)
+		ms, err := getMemberSchema(member, types, schemas)
 		if err != nil {
 			fmt.Printf("invalid type of %s.%s\n", typ.Name(), member.Name)
 		}
 
-		in := GetParameterLocation(member.Tags())
+		in := getParameterLocation(member.Tags())
 		required, allowEmpty := ParseTags(ms, member.Tags())
 		if in == "" {
 			localBodySchema.Properties[fn] = ms
@@ -139,7 +139,7 @@ func (rp RequestParser) parse(
 	return rpr
 }
 
-func (rp RequestParser) Parse(
+func (rp requestParser) Parse(
 	typ spec.DefineStruct, // RequestType to parse
 	types map[string]spec.DefineStruct, // all defined types from api spec
 	requests openapi3.RequestBodies, // request body references
@@ -222,6 +222,33 @@ func (rp RequestParser) Parse(
 	return params, bodyRef
 }
 
+func getMemberSchema(m spec.Member, types map[string]spec.DefineStruct, schemas openapi3.Schemas) (*openapi3.SchemaRef, error) {
+	schema, err := getSchema(m.Type.Name(), types, schemas)
+	if err != nil {
+		return nil, err
+	}
+
+	desc := m.GetComment()
+	if desc == "" {
+		desc = strings.Join(m.Docs, " ")
+	}
+	deprecated := CheckDeprecated(m.Docs)
+
+	if desc == "" && !deprecated {
+		return schema, nil
+	}
+
+	// Member is a struct
+	if schema.Value == nil {
+		// make a copy, because description or deprecated will be changed.
+		originalSchema := *schemas[m.Name]
+		schema = &originalSchema
+	}
+	schema.Value.Description = desc
+	schema.Value.Deprecated = deprecated
+	return schema, nil
+}
+
 func containFormParam(params openapi3.Parameters) bool {
 	for _, p := range params {
 		if p.Value.In == openapi3.ParameterInQuery {
@@ -231,7 +258,7 @@ func containFormParam(params openapi3.Parameters) bool {
 	return false
 }
 
-func GetFieldName(m spec.Member) string {
+func getFieldName(m spec.Member) string {
 	for _, tag := range m.Tags() {
 		if tag.Key == constant.TagKeyJson || tag.Key == constant.TagKeyForm ||
 			tag.Key == constant.TagKeyHeader || tag.Key == constant.TagKeyPath {
@@ -242,4 +269,18 @@ func GetFieldName(m spec.Member) string {
 		}
 	}
 	return m.Name
+}
+
+func getParameterLocation(tags []*spec.Tag) string {
+	for _, tag := range tags {
+		switch tag.Key {
+		case constant.TagKeyForm:
+			return openapi3.ParameterInQuery
+		case constant.TagKeyHeader:
+			return openapi3.ParameterInHeader
+		case constant.TagKeyPath:
+			return openapi3.ParameterInPath
+		}
+	}
+	return ""
 }
