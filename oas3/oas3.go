@@ -197,7 +197,7 @@ func FillPaths(
 func ParseResponse(typ string, types map[string]spec.DefineStruct, responses openapi3.ResponseBodies, schemas openapi3.Schemas) *openapi3.ResponseRef {
 	if _, ok := responses[typ]; ok {
 		return &openapi3.ResponseRef{
-			Ref: fmt.Sprintf("#/components/responseBodies/%s", typ),
+			Ref: fmt.Sprintf("#/components/responses/%s", typ),
 		}
 	}
 	schema, err := GetSchema(typ, types, schemas)
@@ -217,7 +217,7 @@ func ParseResponse(typ string, types map[string]spec.DefineStruct, responses ope
 		},
 	}
 	return &openapi3.ResponseRef{
-		Ref: fmt.Sprintf("#/components/responseBodies/%s", typ),
+		Ref: fmt.Sprintf("#/components/responses/%s", typ),
 	}
 }
 
