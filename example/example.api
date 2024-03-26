@@ -111,6 +111,7 @@ service Example {
 		summary:      "Update story book"
 		descripton:   "Update one or multiple story books"
 		externalDocs: "https://github.com/jayvynl/goctl-openapi"
+		servers:      "http://another,https://another"
 	)
 	@handler UpdateStoryBooks
 	post /story/:id (UpdateStoryBooksRequest)
