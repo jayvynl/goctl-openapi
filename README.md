@@ -18,7 +18,7 @@ This plugin's version and goctl's version should have the same major and minor v
 For example, if you use goctl v1.6.3, then you should install this plugin with:
 
 ```shell
-go install github.com/jayvynl/goctl-openapi@v1.6
+go install github.com/jayvynl/goctl-openapi@v1.6.0
 ```
 
 ### Usage
