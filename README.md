@@ -1,7 +1,7 @@
 goctl-openapi
 ===
 
-This project is a plugin for [goctl](https://github.com/zeromicro/go-zero/tree/master/tools/goctl). It't able to generate openapi specification version 3 file from go-ctl api file.
+This project is a plugin for [goctl](https://github.com/zeromicro/go-zero/tree/master/tools/goctl). It's able to generate [openapi specification version 3](https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.0.3.md) file from [go-ctl api](https://go-zero.dev/en/docs/tutorials) file.
 
 
 ### Features
@@ -18,7 +18,7 @@ This plugin's version and goctl's version should have the same major and minor v
 For example, if you use goctl v1.6.3, then you should install this plugin with:
 
 ```shell
-go install github.com/jayvynl/goctl-openapi@v1.6.0
+go install github.com/jayvynl/goctl-openapi@v1.6
 ```
 
 ### Usage
