@@ -13,6 +13,8 @@ import (
 	"github.com/zeromicro/go-zero/tools/goctl/plugin"
 )
 
+var DefaultResponseDesc = "A successful response."
+
 func GetDoc(p *plugin.Plugin) *openapi3.T {
 	doc := &openapi3.T{
 		OpenAPI:      "3.0.3",
@@ -153,10 +155,20 @@ func FillPaths(
 					request = nil
 				}
 			}
+
+			var responseTypeName string
 			if route.ResponseType != nil {
-				if typ := route.ResponseType.Name(); typ != "" {
-					response = ParseResponse(typ, types, responses, schemas)
+				responseTypeName = route.ResponseType.Name()
+			}
+
+			if responseTypeName == "" {
+				response = &openapi3.ResponseRef{
+					Value: &openapi3.Response{
+						Description: &DefaultResponseDesc,
+					},
 				}
+			} else {
+				response = ParseResponse(route.RequestType.Name(), types, responses, schemas)
 			}
 
 			var security *openapi3.SecurityRequirements
@@ -194,10 +206,9 @@ func ParseResponse(typ string, types map[string]spec.DefineStruct, responses ope
 		return nil
 	}
 
-	desc := "A successful response."
 	responses[typ] = &openapi3.ResponseRef{
 		Value: &openapi3.Response{
-			Description: &desc,
+			Description: &DefaultResponseDesc,
 			Content: openapi3.Content{
 				"application/json": &openapi3.MediaType{
 					Schema: schema,
