@@ -129,7 +129,7 @@ func FillPaths(
 			tags := GetTags(route.AtDoc.Properties)
 			if len(tags) == 0 {
 				if gn := group.GetAnnotation("group"); len(gn) > 0 {
-					tags = []string{service.Name, gn}
+					tags = []string{gn}
 				} else {
 					tags = []string{service.Name}
 				}
@@ -168,7 +168,7 @@ func FillPaths(
 					},
 				}
 			} else {
-				response = ParseResponse(route.RequestType.Name(), types, responses, schemas)
+				response = ParseResponse(responseTypeName, types, responses, schemas)
 			}
 
 			var security *openapi3.SecurityRequirements
@@ -206,7 +206,7 @@ func ParseResponse(typ string, types map[string]spec.DefineStruct, responses ope
 		return nil
 	}
 
-	responses[typ] = &openapi3.ResponseRef{
+	response := &openapi3.ResponseRef{
 		Value: &openapi3.Response{
 			Description: &DefaultResponseDesc,
 			Content: openapi3.Content{
@@ -216,6 +216,12 @@ func ParseResponse(typ string, types map[string]spec.DefineStruct, responses ope
 			},
 		},
 	}
+	// swagger editor will complain that []ResponseType is not a valid component name.
+	if typ[0] == '[' {
+		return response
+	}
+
+	responses[typ] = response
 	return &openapi3.ResponseRef{
 		Ref: fmt.Sprintf("#/components/responses/%s", typ),
 	}
@@ -240,7 +246,7 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 		return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
 	}
 
-	allOf := make(openapi3.SchemaRefs, 0)
+	embeddedSchemas := make([]*openapi3.SchemaRef, 0)
 	schema := &openapi3.SchemaRef{
 		Value: &openapi3.Schema{
 			Type:        openapi3.TypeObject,
@@ -263,7 +269,7 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 			mt = types[mt.Name()]
 			ms := GetStructSchema(mt, types, schemas)
 			if m.Name == "" {
-				allOf = append(allOf, ms)
+				embeddedSchemas = append(embeddedSchemas, schemas[mt.Name()])
 				continue
 			}
 			schema.Value.Properties[fn] = ms
@@ -281,16 +287,11 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 		}
 	}
 
-	if len(allOf) != 0 {
-		allOf = append(allOf, schema)
-		schema = &openapi3.SchemaRef{
-			Value: &openapi3.Schema{
-				Title:       schema.Value.Title,
-				Description: schema.Value.Description,
-				Deprecated:  schema.Value.Deprecated,
-				AllOf:       allOf,
-			},
+	for _, embeddedSchema := range embeddedSchemas {
+		for name, fieldSchema := range embeddedSchema.Value.Properties {
+			schema.Value.Properties[name] = fieldSchema
 		}
+		schema.Value.Required = MergeRequired(schema.Value.Required, embeddedSchema.Value.Required)
 	}
 	return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
 }
@@ -311,12 +312,11 @@ func GetMemberSchema(m spec.Member, types map[string]spec.DefineStruct, schemas 
 		return schema, nil
 	}
 
+	// Member is a struct
 	if schema.Value == nil {
-		schema = &openapi3.SchemaRef{
-			Value: &openapi3.Schema{
-				OneOf: openapi3.SchemaRefs{schema},
-			},
-		}
+		// make a copy, because description or deprecated will be changed.
+		originalSchema := *schemas[m.Name]
+		schema = &originalSchema
 	}
 	schema.Value.Description = desc
 	schema.Value.Deprecated = deprecated
@@ -387,14 +387,13 @@ func GetSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 		if err != nil {
 			return nil, err
 		}
+		// pointer element is a struct type
 		if elementSchema.Value == nil {
-			elementSchema = &openapi3.SchemaRef{
-				Value: &openapi3.Schema{
-					OneOf:    openapi3.SchemaRefs{elementSchema},
-					Nullable: true,
-				},
-			}
+			// make a copy of original schema
+			originalSchema := *schemas[typ[1:]]
+			elementSchema = &originalSchema
 		}
+		elementSchema.Value.Nullable = true
 		return elementSchema, nil
 	}
 
