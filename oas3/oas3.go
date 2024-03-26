@@ -254,7 +254,7 @@ func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, 
 	// must set cache immediately, for breaking cycle type reference.
 	schemas[typ.Name()] = schema
 	for _, m := range typ.Members {
-		fn := GetFieldName(m)
+		fn := GetJsonFieldName(m)
 		// is member a struct type?
 		if mt, ok := m.Type.(spec.DefineStruct); ok {
 			// embedded struct, recursive parse
@@ -863,19 +863,6 @@ func ParseNumber(format string, s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-func GetFieldName(m spec.Member) string {
-	for _, tag := range m.Tags() {
-		if tag.Key == constant.TagKeyJson || tag.Key == constant.TagKeyForm ||
-			tag.Key == constant.TagKeyHeader || tag.Key == constant.TagKeyPath {
-			if tag.Name == "-" {
-				return m.Name
-			}
-			return tag.Name
-		}
-	}
-	return m.Name
-}
-
 func IsUint(format string) bool {
 	return format == constant.FormatUint || format == constant.FormatUint8 || format == constant.FormatUint16 ||
 		format == constant.FormatUint32 || format == constant.FormatUint64
@@ -889,4 +876,16 @@ func CheckDeprecated(docs spec.Doc) bool {
 		}
 	}
 	return false
+}
+
+func GetJsonFieldName(m spec.Member) string {
+	for _, tag := range m.Tags() {
+		if tag.Key == constant.TagKeyJson {
+			if tag.Name == "-" {
+				return m.Name
+			}
+			return tag.Name
+		}
+	}
+	return m.Name
 }

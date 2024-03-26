@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/jayvynl/goctl-openapi/constant"
 	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
 )
 
@@ -228,4 +229,17 @@ func containFormParam(params openapi3.Parameters) bool {
 		}
 	}
 	return false
+}
+
+func GetFieldName(m spec.Member) string {
+	for _, tag := range m.Tags() {
+		if tag.Key == constant.TagKeyJson || tag.Key == constant.TagKeyForm ||
+			tag.Key == constant.TagKeyHeader || tag.Key == constant.TagKeyPath {
+			if tag.Name == "-" {
+				return m.Name
+			}
+			return tag.Name
+		}
+	}
+	return m.Name
 }
