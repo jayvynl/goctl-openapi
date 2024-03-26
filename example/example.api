@@ -52,6 +52,8 @@ type StoryBookFilter {
 
 type StoryBookFilterWithBody {
 	StoryBookFilter
+	Name  string    `json:"name"` // same name but json, should keep both
+	Type  string    `form:"type" validate:"oneof=foo bar spam egg"` // same name and same location, should overwrite
 	Types [2]string `json:"types,optional" validate:"dive,oneof='foo0x2Cbar' 'spam0x7Cegg'"`
 }
 

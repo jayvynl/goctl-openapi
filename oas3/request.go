@@ -113,21 +113,21 @@ func (rp RequestParser) parse(
 			tempSchema = embeddedStructs[i].schema
 		}
 
+	out:
 		for _, p := range tempParams {
 			for i, op := range params {
 				if p.Value.Name == op.Value.Name {
 					params[i] = p
+					continue out
 				}
 			}
 			params = append(params, p)
 		}
 
-		if tempSchema != nil {
-			for n, p := range tempSchema.Properties {
-				bodySchema.Properties[n] = p
-			}
-			bodySchema.Required = MergeRequired(bodySchema.Required, tempSchema.Required)
+		for n, p := range tempSchema.Properties {
+			bodySchema.Properties[n] = p
 		}
+		bodySchema.Required = MergeRequired(bodySchema.Required, tempSchema.Required)
 	}
 
 	rpr := rawParsedRequest{
@@ -165,18 +165,19 @@ func (rp RequestParser) Parse(
 			Deprecated:  rpr.schema.Deprecated,
 			Properties:  make(openapi3.Schemas),
 		}
-		for _, p := range rpr.params {
+		for i, p := range rpr.params {
 			if p.Value.In == openapi3.ParameterInQuery {
 				schema.Properties[p.Value.Name] = p.Value.Schema
 				// if a param both exists in query and form, any one is not required
 				if p.Value.Required {
 					value := *p.Value
+					value.Required = false
 					value.AllowEmptyValue = true
-					params = append(params, &openapi3.ParameterRef{Value: &value})
+					params[i] = &openapi3.ParameterRef{Value: &value}
 					continue
 				}
-				params = append(params, p)
 			}
+			params[i] = p
 		}
 	} else {
 		params = rpr.params

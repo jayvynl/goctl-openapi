@@ -864,11 +864,16 @@ func ParseNumber(format string, s string) (float64, error) {
 }
 
 func GetFieldName(m spec.Member) string {
-	name := m.Name
-	if tagName, err := m.GetPropertyName(); err != nil {
-		name = tagName
+	for _, tag := range m.Tags() {
+		if tag.Key == constant.TagKeyJson || tag.Key == constant.TagKeyForm ||
+			tag.Key == constant.TagKeyHeader || tag.Key == constant.TagKeyPath {
+			if tag.Name == "-" {
+				return m.Name
+			}
+			return tag.Name
+		}
 	}
-	return name
+	return m.Name
 }
 
 func IsUint(format string) bool {
