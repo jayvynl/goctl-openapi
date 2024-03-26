@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 
 	"github.com/jayvynl/goctl-openapi/oas3"
@@ -13,14 +14,21 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const Version = "v1.6.0"
+
 var (
-	output = flag.String("filename", "", `openapi file name, default "openapi.json", "-" will output to stdout.`)
-	format = flag.String("format", "", `serialization format, "json" or "yaml", default "json".`)
-	pretty = flag.Bool("pretty", false, `pretty print of json.`)
+	version = flag.Bool("version", false, `show version and exit.`)
+	output  = flag.String("filename", "", `openapi file name, default "openapi.json", "-" will output to stdout.`)
+	format  = flag.String("format", "", `serialization format, "json" or "yaml", default "json".`)
+	pretty  = flag.Bool("pretty", false, `pretty print of json.`)
 )
 
 func main() {
 	flag.Parse()
+	if *version {
+		fmt.Printf("goctl-openapi %s %s/%s\n", Version, runtime.GOOS, runtime.GOARCH)
+		return
+	}
 
 	p, err := plugin.NewPlugin()
 	if err != nil {

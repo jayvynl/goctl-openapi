@@ -33,6 +33,8 @@ Usage goctl-openapi:
         serialization format, "json" or "yaml", default "json".
   -pretty
         pretty print of json.
+  -version
+        show version and exit.
 ```
 
 Usage example.
