@@ -71,7 +71,7 @@ func (rp requestParser) parse(
 		}
 
 		in := getParameterLocation(member.Tags())
-		required, allowEmpty := ParseTags(ms, member.Tags())
+		required, allowEmpty := parseTags(ms, member.Tags())
 		if in == "" {
 			localBodySchema.Properties[fn] = ms
 			if required {
@@ -97,7 +97,7 @@ func (rp requestParser) parse(
 		Type:        openapi3.TypeObject,
 		Title:       typ.Name(),
 		Description: strings.Join(typ.Docs, " "),
-		Deprecated:  CheckDeprecated(typ.Docs),
+		Deprecated:  checkDeprecated(typ.Docs),
 		Properties:  make(openapi3.Schemas),
 	}
 
@@ -220,33 +220,6 @@ func (rp requestParser) Parse(
 		body:   bodyRef,
 	}
 	return params, bodyRef
-}
-
-func getMemberSchema(m spec.Member, types map[string]spec.DefineStruct, schemas openapi3.Schemas) (*openapi3.SchemaRef, error) {
-	schema, err := getSchema(m.Type.Name(), types, schemas)
-	if err != nil {
-		return nil, err
-	}
-
-	desc := m.GetComment()
-	if desc == "" {
-		desc = strings.Join(m.Docs, " ")
-	}
-	deprecated := CheckDeprecated(m.Docs)
-
-	if desc == "" && !deprecated {
-		return schema, nil
-	}
-
-	// Member is a struct
-	if schema.Value == nil {
-		// make a copy, because description or deprecated will be changed.
-		originalSchema := *schemas[m.Name]
-		schema = &originalSchema
-	}
-	schema.Value.Description = desc
-	schema.Value.Deprecated = deprecated
-	return schema, nil
 }
 
 func containFormParam(params openapi3.Parameters) bool {

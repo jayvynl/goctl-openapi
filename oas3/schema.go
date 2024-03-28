@@ -117,7 +117,7 @@ func getSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 		openapiFormat = constant.FormatBinary
 	default:
 		if ds, ok := types[typ]; ok {
-			return GetStructSchema(ds, types, schemas), nil
+			return getStructSchema(ds, types, schemas), nil
 		}
 		return nil, ErrInvalidType
 	}
@@ -129,7 +129,96 @@ func getSchema(typ string, types map[string]spec.DefineStruct, schemas openapi3.
 	}, nil
 }
 
-func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) (bool, bool) {
+func getStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, schemas openapi3.Schemas) *openapi3.SchemaRef {
+	if _, ok := schemas[typ.Name()]; ok {
+		return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
+	}
+
+	embeddedSchemas := make([]*openapi3.SchemaRef, 0)
+	schema := &openapi3.SchemaRef{
+		Value: &openapi3.Schema{
+			Type:        openapi3.TypeObject,
+			Title:       typ.Name(),
+			Description: strings.Join([]string(typ.Docs), " "),
+			Deprecated:  checkDeprecated(typ.Docs),
+			Properties:  make(openapi3.Schemas),
+		},
+	}
+
+	// must set cache immediately, for breaking cycle type reference.
+	schemas[typ.Name()] = schema
+	for _, m := range typ.Members {
+		fn := getJsonFieldName(m)
+		// is member a struct type?
+		if mt, ok := m.Type.(spec.DefineStruct); ok {
+			// embedded struct, recursive parse
+			// currently go-zero does not support show members of nested struct over 2 levels(include).
+			// we can get original type from type definitions in this case.
+			mt = types[mt.Name()]
+			ms := getStructSchema(mt, types, schemas)
+			if m.Name == "" {
+				embeddedSchemas = append(embeddedSchemas, schemas[mt.Name()])
+				continue
+			}
+			schema.Value.Properties[fn] = ms
+		} else {
+			memberSchema, err := getMemberSchema(m, types, schemas)
+			if err != nil {
+				fmt.Printf("invalid type of %s.%s\n", typ.Name(), m.Name)
+				continue
+			}
+			schema.Value.Properties[fn] = memberSchema
+		}
+
+		if required, _ := parseTags(schema.Value.Properties[fn], m.Tags()); required {
+			schema.Value.Required = append(schema.Value.Required, fn)
+		}
+	}
+
+	for _, embeddedSchema := range embeddedSchemas {
+		for name, fieldSchema := range embeddedSchema.Value.Properties {
+			schema.Value.Properties[name] = fieldSchema
+		}
+		schema.Value.Required = MergeRequired(schema.Value.Required, embeddedSchema.Value.Required)
+	}
+	return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
+}
+
+func getMemberSchema(m spec.Member, types map[string]spec.DefineStruct, schemas openapi3.Schemas) (*openapi3.SchemaRef, error) {
+	schema, err := getSchema(m.Type.Name(), types, schemas)
+	if err != nil {
+		return nil, err
+	}
+
+	desc := m.GetComment()
+	if desc == "" {
+		desc = strings.Join(m.Docs, " ")
+	}
+	deprecated := checkDeprecated(m.Docs)
+
+	if desc == "" && !deprecated {
+		return schema, nil
+	}
+
+	// Member is a struct
+	if schema.Value == nil {
+		originalSchema := schemas[m.Type.Name()]
+		if desc != "" || (deprecated != originalSchema.Value.Deprecated) {
+			// make a copy, because description or deprecated will be changed,
+			// we don't want to affect original struct schema definition.
+			originalSchemaCopy := *originalSchema
+			originalSchemaCopy.Value.Description = desc
+			originalSchemaCopy.Value.Deprecated = deprecated
+			schema = &originalSchemaCopy
+		}
+	} else {
+		schema.Value.Description = desc
+		schema.Value.Deprecated = deprecated
+	}
+	return schema, nil
+}
+
+func parseTags(s *openapi3.SchemaRef, tags []*spec.Tag) (bool, bool) {
 	required := true
 	allowEmpty := true
 
@@ -212,63 +301,8 @@ func ParseTags(s *openapi3.SchemaRef, tags []*spec.Tag) (bool, bool) {
 	return required, allowEmpty
 }
 
-func GetStructSchema(typ spec.DefineStruct, types map[string]spec.DefineStruct, schemas openapi3.Schemas) *openapi3.SchemaRef {
-	if _, ok := schemas[typ.Name()]; ok {
-		return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
-	}
-
-	embeddedSchemas := make([]*openapi3.SchemaRef, 0)
-	schema := &openapi3.SchemaRef{
-		Value: &openapi3.Schema{
-			Type:        openapi3.TypeObject,
-			Title:       typ.Name(),
-			Description: strings.Join([]string(typ.Docs), " "),
-			Deprecated:  CheckDeprecated(typ.Docs),
-			Properties:  make(openapi3.Schemas),
-		},
-	}
-
-	// must set cache immediately, for breaking cycle type reference.
-	schemas[typ.Name()] = schema
-	for _, m := range typ.Members {
-		fn := GetJsonFieldName(m)
-		// is member a struct type?
-		if mt, ok := m.Type.(spec.DefineStruct); ok {
-			// embedded struct, recursive parse
-			// currently go-zero does not support show members of nested struct over 2 levels(include).
-			// we can get original type from type definitions in this case.
-			mt = types[mt.Name()]
-			ms := GetStructSchema(mt, types, schemas)
-			if m.Name == "" {
-				embeddedSchemas = append(embeddedSchemas, schemas[mt.Name()])
-				continue
-			}
-			schema.Value.Properties[fn] = ms
-		} else {
-			memberSchema, err := getMemberSchema(m, types, schemas)
-			if err != nil {
-				fmt.Printf("invalid type of %s.%s\n", typ.Name(), m.Name)
-				continue
-			}
-			schema.Value.Properties[fn] = memberSchema
-		}
-
-		if required, _ := ParseTags(schema.Value.Properties[fn], m.Tags()); required {
-			schema.Value.Required = append(schema.Value.Required, fn)
-		}
-	}
-
-	for _, embeddedSchema := range embeddedSchemas {
-		for name, fieldSchema := range embeddedSchema.Value.Properties {
-			schema.Value.Properties[name] = fieldSchema
-		}
-		schema.Value.Required = MergeRequired(schema.Value.Required, embeddedSchema.Value.Required)
-	}
-	return &openapi3.SchemaRef{Ref: fmt.Sprintf("#/components/schemas/%s", typ.Name())}
-}
-
-// CheckDeprecated check Deprecated: comment
-func CheckDeprecated(docs spec.Doc) bool {
+// checkDeprecated check Deprecated: comment
+func checkDeprecated(docs spec.Doc) bool {
 	for _, doc := range docs {
 		if strings.HasPrefix(doc, "Deprecated:") {
 			return true
@@ -277,7 +311,7 @@ func CheckDeprecated(docs spec.Doc) bool {
 	return false
 }
 
-func GetJsonFieldName(m spec.Member) string {
+func getJsonFieldName(m spec.Member) string {
 	for _, tag := range m.Tags() {
 		if tag.Key == constant.TagKeyJson {
 			if tag.Name == "-" {
